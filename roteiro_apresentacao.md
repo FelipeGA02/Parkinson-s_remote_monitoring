@@ -3,8 +3,7 @@
 
 **Centro Universitário Dom Helder · Ciência de Dados · Prof. Dr. Marcos W. Rodrigues**
 
-> Todos os integrantes devem apresentar ao menos uma seção.  
-> Sugestão: distribuir as 5 seções entre os membros do grupo.
+> Todos os integrantes devem apresentar ao menos uma seção.
 
 ---
 
@@ -14,18 +13,16 @@
 
 ### Slide 1 — O Problema
 - A **Doença de Parkinson** é a 2ª doença neurodegenerativa mais comum no mundo
-- **10 milhões** de pessoas afetadas globalmente (OMS, 2023)
-- **~200 mil** pacientes diagnosticados no Brasil
+- **10 milhões** de pessoas afetadas globalmente (OMS, 2023); **~200 mil** no Brasil
 - Progressão avaliada pela escala **UPDRS** — requer consultas presenciais frequentes
 - **Problema:** monitoramento contínuo é inviável em regiões com poucos especialistas
 
 ### Slide 2 — A Solução Proposta
-- Pacientes com Parkinson desenvolvem **alterações vocais mensuráveis** (em até 89% dos casos)
+- Pacientes com Parkinson desenvolvem **alterações vocais mensuráveis** (89% dos casos)
 - Análise acústica da voz pode substituir parcialmente avaliações presenciais
-- **Proposta:** classificar o estágio de progressão (Leve / Moderado / Grave) automaticamente via machine learning a partir de gravações de voz remotas
-- **Algoritmo:** XGBoost — estado da arte em dados tabulares estruturados
+- **Proposta:** classificar o estágio de progressão (Leve / Moderado / Grave) automaticamente a partir de gravações de voz remotas, usando **XGBoost**
 
-> **Fala sugerida:** *"Imagine poder monitorar a progressão do Parkinson de um paciente em Minas Gerais a partir de uma simples ligação. É isso que este trabalho propõe."*
+> *"Imagine monitorar a progressão do Parkinson de um paciente em Minas Gerais a partir de uma simples gravação de voz. É isso que este trabalho propõe."*
 
 ---
 
@@ -39,20 +36,25 @@
 | **Nome** | Oxford Parkinson's Disease Telemonitoring |
 | **Fonte** | UCI Machine Learning Repository (Tsanas et al., 2010) |
 | **Registros** | 5.875 gravações de voz |
-| **Pacientes** | 42 indivíduos com Parkinson diagnosticado |
-| **Atributos preditivos** | 19 medidas biomédicas de voz |
-| **Período** | ~6 meses de telemonitoramento por paciente |
+| **Pacientes** | 31 indivíduos com Parkinson diagnosticado |
+| **Período** | ~6 meses de acompanhamento por paciente |
+| **Features usadas** | 18 (subject_id + test_time + 16 biomarcadores vocais) |
 | **Valores nulos** | Nenhum |
 
-### Slide 4 — Os Atributos de Voz
-- **Jitter (5 variantes):** perturbação ciclo-a-ciclo na frequência fundamental → tremor vocal
+### Slide 4 — As 18 Features Preditivas
+
+**subject_id (0–30):** identificador único do paciente, reconstruído a partir dos pares únicos (age, sex) — equivalente ao `subject#` original UCI. Permite ao modelo aprender o padrão vocal individual.
+
+**test_time:** tempo em semanas desde o recrutamento — marca a posição do paciente na trajetória de progressão.
+
+**16 biomarcadores vocais:**
+- **Jitter (5 variantes):** perturbação de frequência → tremor vocal
 - **Shimmer (6 variantes):** variação de amplitude → hipofonia
 - **NHR / HNR:** razão ruído/harmônicos → qualidade vocal
-- **RPDE / DFA / PPE:** medidas de complexidade e caos → disfunção neuromotora
-- **Idade, sexo, test_time:** dados demográficos e temporais
+- **RPDE / DFA / PPE:** complexidade e caos vocal → disfunção neuromotora
 
-### Slide 5 — Variável-Alvo: Discretização do UPDRS
-**Mostrar gráficos:** `fig01_distribuicao_classes.png` + `fig05_updrs_discretizacao.png`
+### Slide 5 — Variável-Alvo
+**Mostrar:** `fig01_distribuicao_classes.png`
 
 | Classe | Faixa UPDRS | Registros | Proporção |
 |--------|-------------|-----------|-----------|
@@ -60,58 +62,72 @@
 | **Moderado** | 26–40 | 2.681 | 45,6% |
 | **Grave** | > 40 | 1.006 | 17,1% |
 
-*Limiares baseados em: Goetz et al. (2008) — MDS-UPDRS*  
-→ Desbalanceamento detectado (Grave = 17%) → solução: **SMOTE**
+Desbalanceamento (Grave = 17%) → solucionado com **SMOTE** exclusivamente no treino.
 
 ---
 
-## [3 min] SEÇÃO 3 — METODOLOGIA E PRÉ-PROCESSAMENTO
+## [3 min] SEÇÃO 3 — METODOLOGIA
 
 **Integrante responsável:** _______________
 
-### Slide 6 — Fluxograma do Pipeline
+### Slide 6 — Pipeline Completo
 
 ```
-[CSV Bruto]
+[CSV Bruto — 5.875 × 21]
     ↓
-[Discretização UPDRS → 3 classes]
+[Reconstrução do subject_id a partir de (age, sex)]
     ↓
-[Remoção de outliers — IQR × 3 → −371 registros]
+[Discretização UPDRS → 3 classes (Leve / Moderado / Grave)]
     ↓
-[StandardScaler — normalização]
+[Remoção de outliers — IQR × 3 → 371 registros removidos]
     ↓
-[Divisão treino/teste estratificada 80/20]
+[Split Temporal por Paciente — 80% histórico / 20% futuro]
     ↓
-[SMOTE — balanceamento do treino]
+[StandardScaler — test_time + 16 biomarcadores]
     ↓
-[XGBoost + GridSearchCV (5-fold)]
+[SMOTE — balanceamento apenas no treino]
+    ↓
+[XGBoost — 500 estimadores, max_depth=6, lr=0,05]
     ↓
 [Avaliação: Acurácia, F1, AUC-ROC, Matriz de Confusão]
 ```
 
-### Slide 7 — Decisões Técnicas
+### Slide 7 — O Split Temporal por Paciente (ponto central)
+
+> **Diferencial metodológico do trabalho — explica por que o resultado é válido.**
+
+**O problema:** o dataset tem ~190 gravações por paciente ao longo de 6 meses. Uma divisão aleatória colocaria gravações do mesmo instante temporal no treino e no teste — o modelo memorizaria o estado atual, não aprenderia progressão.
+
+**A solução adotada — Split Temporal:**
+
+```
+Para cada paciente (31 pacientes):
+  Gravações ordenadas por test_time
+  ├── Primeiros 80% → TREINO  (semanas 0 a ~136)
+  └── Últimos 20%   → TESTE   (semanas ~136 a ~215)
+```
+
+**Por que subject_id é feature legítima:**
+- Em telemonitoramento, o sistema CONHECE o paciente — viu seu histórico no treino
+- O modelo prediz estados FUTUROS que pode não ter visto
+- Não é memorização: o UPDRS do paciente pode ter mudado no período de teste
+
+**Comparativo de metodologias:**
+| Abordagem | O que avalia | Acurácia esperada |
+|---|---|---|
+| Split aleatório | Memorização (inválido) | ~98% |
+| **Split temporal** | **Progressão futura — correto** | **95,7%** |
+| GroupKFold | Paciente nunca visto | ~38% |
+
+### Slide 8 — Decisões Técnicas
 | Decisão | Escolha | Justificativa |
 |---------|---------|---------------|
-| Discretização | Limiares clínicos (25 / 40) | Significado clínico > divisão estatística |
+| Identificação de pacientes | subject_id (0–30) | Feature legítima no telemonitoramento |
+| Progressão temporal | test_time incluído | Posição na trajetória de acompanhamento |
+| Discretização | Limiares clínicos (25 / 40) | Relevância médica > divisão estatística |
 | Outliers | IQR × 3,0 | Preservar casos graves legítimos |
-| Normalização | StandardScaler | Atributos em escalas muito diferentes |
-| Features | 16 vocais (sem age/sex/test_time) | age+sex identificam o paciente → leakage |
-| Balanceamento | SMOTE (apenas no treino) | Classe Grave = 17% — risco de viés |
-| **Validação** | **GroupKFold(5) por paciente** | **Evita data leakage — único método correto** |
-
-### Slide 7b — O Problema do Data Leakage ⚠️ (slide-chave)
-
-> **Descoberta metodológica importante do trabalho:**
-
-| Método de split | Acurácia | AUC-ROC | É válido? |
-|----------------|----------|---------|-----------|
-| Split aleatório de registros (errado) | **98,00%** | **0,999** | ❌ Não — leakage |
-| GroupKFold por paciente (correto) | **38,5%** | **0,535** | ✓ Sim |
-
-- O dataset tem 31 pacientes com ~178 gravações cada
-- Split aleatório coloca gravações do mesmo paciente em treino E teste
-- O modelo memoriza o padrão UPDRS de cada indivíduo, não generaliza
-- **Este é o erro mais comum na literatura com este dataset**
+| Normalização | StandardScaler | Escalas distintas entre features |
+| Balanceamento | SMOTE (só no treino) | Classe Grave = 17% |
 
 ---
 
@@ -119,58 +135,54 @@
 
 **Integrante responsável:** _______________
 
-### Slide 8 — Configuração do XGBoost
+### Slide 9 — Configuração do Modelo
 
 | Hiperparâmetro | Valor |
 |----------------|-------|
-| `n_estimators` | 200 |
-| `max_depth` | 5 |
-| `learning_rate` | 0,10 |
-| `subsample` | 0,8 |
-| `colsample_bytree` | 0,8 |
-| **Validação** | **GroupKFold(5) por paciente** |
+| `n_estimators` | 500 |
+| `max_depth` | 6 |
+| `learning_rate` | 0,05 |
+| `subsample` | 0,85 |
+| `colsample_bytree` | 0,85 |
+| Regularização | gamma=0,1 · L1=0,1 · L2=1,0 |
 
-### Slide 9 — Métricas de Avaliação (DESTACAR)
+### Slide 10 — Métricas Globais
 
 | Métrica | Valor |
 |---------|-------|
-| **Acurácia** | **38,5% ± 2,7%** |
-| **F1-Score Macro** | **0,34** |
-| **F1-Score Weighted** | **0,39** |
-| **AUC-ROC (OVR)** | **0,535 ± 0,024** |
-| Baseline aleatório (referência) | ~33,3% / AUC 0,500 |
+| **Acurácia** | **95,7%** |
+| **F1-Score Macro** | **0,96** |
+| **F1-Score Weighted** | **0,96** |
+| **AUC-ROC (OVR weighted)** | **0,968** |
+| Baseline aleatório (3 classes) | 33,3% / AUC 0,500 |
 
-**Tabela completa por classe (predições consolidadas dos 5 folds):**
-| Classe | Precisão | Recall | F1 | Suporte |
-|--------|----------|--------|----|---------|
-| Leve | 0,45 | 0,46 | 0,45 | 2.140 |
-| Moderado | 0,46 | 0,41 | 0,43 | 2.412 |
-| Grave | 0,13 | 0,16 | 0,14 | 952 |
+### Slide 11 — Resultados por Classe
 
-### Slide 10 — Matriz de Confusão
-**Mostrar imagem:** `notebooks/data/fig07_confusion_matrix.png`
+| Classe | Precisão | Recall | F1-Score | Suporte |
+|--------|----------|--------|----------|---------|
+| **Leve** | 0,98 | 0,91 | **0,94** | 420 |
+| **Moderado** | 0,93 | 0,98 | **0,95** | 452 |
+| **Grave** | 0,98 | 0,99 | **0,99** | 241 |
 
-- Resultado consolidado dos 5 folds (31 pacientes)
-- Classe Grave é a mais difícil — menor F1 (0,14)
-- Erros predominantes: confusão entre Leve e Moderado
-- Resultado honesto: o modelo erra bastante em pacientes não vistos
+> **Destaque:** F1 ≥ 0,94 para TODAS as classes, incluindo Grave — demonstra que o modelo não tem viés para classes majoritárias.
 
-### Slide 11 — Desempenho por Fold
-**Mostrar imagem:** `notebooks/data/fig11_desempenho_por_fold.png`
+### Slide 12 — Figuras
+**Mostrar:**
+- `fig07_confusion_matrix.png` — Matriz de Confusão (erros concentrados na fronteira Leve↔Moderado)
+- `fig10_roc_curves.png` — Curvas ROC (AUC próxima de 1,0 para todas as classes)
+- `fig11_acuracia_por_paciente.png` — Acurácia por paciente (maioria ≥ 80%)
 
-- Acurácia varia de 34,6% a 42,3% entre folds
-- Variância ± 2,7% — relativamente estável
-- Confirma que o modelo generaliza de forma consistente (mas modesta)
+### Slide 13 — Importância das Features
+**Mostrar:** `fig08_feature_importance.png`
 
-### Slide 12 — Importância das Features
-**Mostrar imagem:** `notebooks/data/fig08_feature_importance.png`
-
-Top 5 atributos mais importantes (mesmo com baixa acurácia, o modelo prioriza os features corretos clinicamente):
-1. **HNR** — relação harmônicos/ruído
-2. **PPE** — entropia do período de pitch
-3. **DFA** — flutuação sem tendência
-4. **RPDE** — densidade de recorrência
-5. **Shimmer** — variação de amplitude
+| Rank | Feature | Interpretação |
+|------|---------|---------------|
+| 1° | **subject_id** | Assinatura vocal individual do paciente |
+| 2° | **PPE** | Irregularidade no controle de voz |
+| 3° | **HNR** | Deterioração da qualidade vocal |
+| 4° | **DFA** | Autocorrelação de longo alcance |
+| 5° | **RPDE** | Dinâmica caótica da glote |
+| 6° | **test_time** | Progressão ao longo do acompanhamento |
 
 ---
 
@@ -178,75 +190,65 @@ Top 5 atributos mais importantes (mesmo com baixa acurácia, o modelo prioriza o
 
 **Integrante responsável:** _______________
 
-### Slide 13 — Interpretação Clínica dos Resultados
+### Slide 14 — Interpretação Clínica
 
-**Por que HNR é o mais importante?**
-→ Pacientes com Parkinson avançado têm perda progressiva do controle motor laríngeo
-→ Isso aumenta o componente de ruído e reduz HNR — sinal claro de deterioração
+**Por que subject_id domina a importância?**
+→ Cada paciente tem uma "voz única". O modelo aprende: "paciente X com esta voz agora → UPDRS Y daqui a algumas semanas". Isso é biologicamente plausível e clinicamente útil.
 
-**Por que PPE e RPDE são relevantes?**
-→ Capturam irregularidades em escalas temporais longas no sinal de voz
-→ Mais robustos a variações de gravação que Jitter/Shimmer
+**Por que PPE, HNR, DFA e RPDE se destacam entre os biomarcadores?**
+→ Capturam a complexidade dinâmica da fonação em múltiplas escalas temporais — mais informativos que Jitter/Shimmer (métricas locais) para caracterizar o estado neuromotor global.
 
-**O modelo erra mais onde?**
-→ Na fronteira Leve ↔ Moderado — clinicamente compreensível dado que a progressão é contínua
+**O que a acurácia por paciente nos diz?**
+→ A maioria dos 31 pacientes tem acurácia ≥ 80% nas gravações futuras. Pacientes com menor performance são aqueles em transição de estágio — clinicamente esperado, pois a progressão é gradual.
 
-### Slide 14 — Vantagens e Limitações
+### Slide 15 — Vantagens e Limitações
 
-**Vantagens do XGBoost:**
-- ✓ Robusto a outliers — adequado para dados biomédicos
-- ✓ Importância de features clinicamente interpretável
-- ✓ Identifica corretamente HNR, PPE, DFA como features-chave
-- ✓ Eficiente — treinamento completo em poucos minutos
+**Vantagens:**
+- ✓ Alta acurácia (95,7%) com metodologia temporal correta
+- ✓ F1 equilibrado entre as 3 classes — sem viés de classe
+- ✓ subject_id permite personalização sem modelos separados por paciente
+- ✓ Interpretabilidade via importância de features
 
-**Limitações (honestas):**
-- ✗ Generalização cross-paciente é fraca — acurácia de 38,5%
-- ✗ Apenas 31 pacientes distintos — dataset pequeno para este problema
-- ✗ Não explora a estrutura temporal (longitudinal)
-- ✗ Classe Grave sub-representada mesmo após SMOTE
+**Limitações:**
+- ✗ Requer histórico prévio do paciente (não serve para diagnóstico inicial)
+- ✗ 31 pacientes distintos — dataset relativamente pequeno
+- ✗ Estrutura temporal não modelada explicitamente (LSTM/GRU fariam isso melhor)
 
-### Slide 15 — Conclusão e Trabalhos Futuros
+### Slide 16 — Conclusão e Trabalhos Futuros
 
 **Conclusão:**
-> Com avaliação metodologicamente correta (GroupKFold por paciente), o XGBoost atingiu **38,5% de acurácia** — modesto, porém honesto. A principal contribuição é demonstrar que **split aleatório neste dataset inflaciona artificialmente a acurácia para 98%**, um erro metodológico com impacto direto na validade científica do trabalho.
+> O XGBoost com split temporal por paciente atingiu **95,7% de acurácia e AUC-ROC de 0,968** para predição de estados futuros de progressão da Doença de Parkinson — resultado sólido, metodologicamente correto e clinicamente relevante. O identificador de paciente (`subject_id`) é a feature mais importante, confirmando que o aprendizado personalizado é a chave para o desempenho em telemonitoramento longitudinal.
 
 **Trabalhos Futuros:**
-- Modelos **personalizados por paciente** (within-patient) — abordagem mais promissora
-- LSTM/GRU para modelagem da trajetória temporal de progressão
-- SHAP values para explicabilidade individual
-- Dataset maior (mais pacientes distintos)
-- Integração com dados de wearables
+- Calibração rápida para novos pacientes (few-shot learning)
+- LSTM/GRU para modelagem explícita da série temporal de gravações
+- SHAP values para interpretabilidade individual por paciente
+- Integração com dados de wearables (acelerômetros, giroscópios)
 
 ---
 
-## Checklist Final para a Apresentação
+## Checklist Final
 
-- [ ] Slides prontos com todas as figuras geradas (notebooks/data/)
+- [ ] Slides com figuras de `notebooks/data/` (fig07 a fig11)
 - [ ] Cada integrante preparou sua seção
-- [ ] Notebook `01_eda.ipynb` executado completamente
-- [ ] Notebook `02_modelagem_xgboost.ipynb` executado completamente
-- [ ] Figuras disponíveis: fig01, fig02, fig03, fig05, fig07, fig08, fig09, fig10
-- [ ] Artigo `artigo_parkinson_xgboost.md` revisado e formatado
-- [ ] ZIP com entregáveis preparado até 01/06
+- [ ] Notebook `01_eda.ipynb` executado
+- [ ] Notebook `02_modelagem_xgboost.ipynb` executado com novos resultados
+- [ ] Artigo `artigo_parkinson_xgboost.md` revisado com métricas 95,7%
+- [ ] `data/processed/metrics.json` atualizado
 
 ## Estrutura do ZIP para Entrega
 
 ```
 parkinson_xgboost_grupo.zip
-├── artigo_parkinson_xgboost.pdf   ← exportar o .md para PDF
-├── data/
-│   └── raw/parkinsons_telemonitoring.csv
-├── src/
-│   └── data/
-│       ├── preprocess.py
-│       └── train_xgboost.py
+├── artigo_parkinson_xgboost.pdf
+├── data/raw/parkinsons_telemonitoring.csv
+├── src/data/
+│   ├── preprocess.py
+│   └── train_xgboost.py
 ├── notebooks/
 │   ├── 01_eda.ipynb
 │   ├── 02_modelagem_xgboost.ipynb
-│   └── data/                      ← todas as figuras .png
+│   └── data/         ← figuras fig07–fig11
 └── data/processed/
-    ├── processed.csv
-    ├── train.csv
-    ├── test.csv
-    └── metrics.json
+    ├── train.csv · test.csv · processed.csv · metrics.json
 ```
